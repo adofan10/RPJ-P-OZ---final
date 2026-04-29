@@ -1,0 +1,105 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <Wire.h>
+#include <BH1750.h>
+#include <DHT.h>
+#include <ArduinoJson.h>
+
+// ---------------- WiFi SETTINGS ----------------
+const char* ssid = "SP-Liga";
+const char* password = "nedamnic";
+
+// ---------------- SENSOR SETTINGS ----------------
+#define I2C_SDA 16
+#define I2C_SCL 17
+#define RAIN_SENSOR_PIN 19
+#define DHT_PIN 18
+#define DHT_TYPE DHT22
+
+BH1750 lightMeter;
+DHT dht(DHT_PIN, DHT_TYPE);
+
+// ---------------- SERVER SETTINGS ----------------
+String serverUrl = "http://10.28.14.160:5000/data";
+
+// ---------------- SLEEP SETTINGS ----------------
+const unsigned long long SLEEP_INTERVAL_US = 12 * 1000000; // 60 sekúnd - 1minúta
+//mením tu menšiu hodnotu
+
+// ============================================================================
+//                      SEND DATA TO SERVER (JSON)
+// ============================================================================
+
+void sendData(float lux, float temperature, float humidity, int rainValue) {
+    if (WiFi.status() != WL_CONNECTED) return;
+    //wifi.status z knižnice wifi.h taktiež ako wl_connected
+    HTTPClient http; //inicializovanie http klienta
+    http.begin(serverUrl); //zapne ho na url/ ip adrese RPI
+    http.addHeader("Content-Type", "application/json"); //dátový typ je json takže tu píšem že json
+
+    StaticJsonDocument<256> jsonDoc; //pripravujem statický json dokument (statická veľkosť)
+    jsonDoc["dazd"] = rainValue; //zapisujem hodnotu rainValue pod "topic" dazd
+    jsonDoc["intenzita_svetla"] = lux; //opakujem
+    jsonDoc["teplota"] = temperature;
+    jsonDoc["vlhkost"] = humidity;
+
+    String jsonData; //vytvorí prázdny objekt typu string
+    serializeJson(jsonDoc, jsonData); // zapíše jsonDoc zhora s textom aj hodnotami do JsonData (čo je typu string)
+
+    http.POST(jsonData); //a odošle na http, čo je rpi
+    http.end(); //skončí
+}
+
+// ============================================================================
+//                                   SETUP
+// ============================================================================
+
+void setup() {
+    delay(200); // po resete čakám nejakú chvíľočku, aby sa systém spamätal
+
+    WiFi.mode(WIFI_STA); //hovorím ESP32 nech sa prepne do station mode -> nech hľadá sieť a nie nech vytvára
+    WiFi.begin(ssid, password); //začnem WiFi a skúšam sa pripojiť na wifi s ssid->názov a passwordom
+
+    // krátky pokus o pripojenie
+    unsigned long startAttempt = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - startAttempt < 5000) {
+        delay(100); //každých 0,1 sekundy zisťujem či je pripojené, max 5 sekúnd
+    }
+    if (WiFi.status() != WL_CONNECTED) {
+    esp_sleep_enable_timer_wakeup(SLEEP_INTERVAL_US);
+    esp_deep_sleep_start(); }
+
+    // inicializácia I2C
+    Wire.begin(I2C_SDA, I2C_SCL);
+
+    // senzory
+    lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE);
+    dht.begin();
+    pinMode(RAIN_SENSOR_PIN, INPUT);
+
+    // -------- MERANIA --------
+    float lux = lightMeter.readLightLevel();
+    float temperature = dht.readTemperature();
+    float humidity = dht.readHumidity();
+    int rainValue = !digitalRead(RAIN_SENSOR_PIN); //znegované, kvôli opačnej logike
+
+    // -------- JSON ODOSLANIE --------
+    //isnan - funkcia zo štandardnej knižnice
+    //zisťuje či to je platné číslo
+    //je to preto aby neposielal bludy, ale aby radšej nič neposlal
+    //problém môže nastať pri tom keď sa inicializuje, alebo nastane nejaká chyba pri I2C zbernici
+    if (!isnan(temperature) && !isnan(humidity)) {
+        sendData(lux, temperature, humidity, rainValue);
+    }
+
+    // WiFi off pre ešte nižšiu spotrebu
+    WiFi.disconnect(true); //odpojím sa
+    WiFi.mode(WIFI_OFF); // vypnem kvôli menšej spotrebe
+
+    // -------- DEEP SLEEP --------
+    esp_sleep_enable_timer_wakeup(SLEEP_INTERVAL_US); //zapínam časomieru na deep selep
+    esp_deep_sleep_start(); //zapínam funkciu
+}
+
+//prázdny loop kvôli tomu že chcem deep sleep a menšiu spotrebu
+void loop() {}
