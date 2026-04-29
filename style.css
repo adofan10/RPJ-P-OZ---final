@@ -1,0 +1,39 @@
+body {    font-family: Arial, sans-serif;
+    background: #f2f2f2;
+    margin: 0;
+    padding: 20px;}
+h1 {text-align: center;}
+.card {max-width: 350px;
+    margin: 30px auto;
+    padding: 20px;
+    background: white;
+    border-radius: 10px;
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    font-size: 18px;}
+.card p {margin: 8px 0;
+    text-align: left;  /* text vľavo */}
+.button-row {display: flex;
+    gap: 10px;
+    margin-top: 10px;}
+.btn {flex: 1;  /* tlačidlá rovnaká šírka */
+    padding: 12px 0;
+    font-size: 16px;
+    font-weight: 600;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    color: white;
+    transition: 0.2s;}
+/* zelené – zapnutie */
+.btn.on, .btn.webon {background-color: #2ecc71;}
+.btn.on:hover, .btn.webon:hover {background-color: #27ae60;}
+/* červené – vypnutie */
+.btn.off, .btn.weboff {background-color: #e74c3c;}
+.btn.off:hover, .btn.weboff:hover {background-color: #e74c3c;}
+/* zelené – zapnutie */
+.btn.webon{background-color: #1e7f3e;}
+.btn.webon:hover{background-color: #166030;}
+/* červené – vypnutie */
+.btn.weboff{background-color: #a52828;}
+.btn.off:hover, .btn.weboff:hover {background-color: #731a1a;}
+

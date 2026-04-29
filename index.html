@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mestská fontána – Monitoring</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="RPI_connect.js"></script>
+    <script src="script.js"></script>
+</head>
+<body>
+
+    <h1>Mestská fontána – Monitoring</h1>
+
+    <div class="card">
+        <p>Teplota ovzdušia: <span id="temp">--</span> °C</p>
+        <p>Vlhkosť ovzdušia: <span id="hum">--</span> %</p>
+        <p>Intenzita svetla: <span id="light">--</span> lx</p>
+        <p>Prší?: <span id="rain">--</span></p>
+        <p>Stav fontány: <span id="status">--</span></p>
+        <!-- Prvý riadok tlačidiel -->
+    <div class="button-row">
+        <button class="btn on" onclick="sendCommand('on')">Zapnúť čerpadlo</button>
+        <button class="btn off" onclick="sendCommand('off')">Vypnúť čerpadlo</button>
+    </div>
+
+    <!-- Druhý riadok tlačidiel -->
+    <div class="button-row">
+        <button class="btn webon" onclick="sendCommand('won')">Riadenie z webu ON</button>
+        <button class="btn weboff" onclick="sendCommand('woff')">Riadenie z webu OFF</button>
+    </div>
+
+    
+</body>
+</html>
