@@ -1,0 +1,141 @@
+import threading
+import time
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import RPi.GPIO as GPIO
+
+# --- GPIO SETUP ---
+RELAY_PIN = 5
+LED_GREEN, LED_BLUE, LED_RED = 19, 20, 21
+
+GPIO.setwarnings(False)
+GPIO.setmode(GPIO.BCM)
+for pin in [RELAY_PIN, LED_GREEN, LED_BLUE, LED_RED]:
+    GPIO.setup(pin, GPIO.OUT)
+
+GPIO.output(RELAY_PIN, 1)
+GPIO.output(LED_GREEN, 0); GPIO.output(LED_BLUE, 0); GPIO.output(LED_RED, 0)
+
+# --- KONFIGURÁCIA ---
+LIGHT_THRESHOLD = 75.0
+TEMPERATURE_THRESHOLD = 5.0
+HUMIDITY_THRESHOLD = 60.0
+LIMIT_ODPOJENIA = 20 
+LIMIT_WEB_TIMEOUT = 20 # Nastavené na x sekúnd 
+
+latest_data = {
+    "dazd": 1,
+    "intenzita_svetla": 0,
+    "teplota": 0,
+    "vlhkost": 100,
+    "stav": 0,
+    "vypis": "Inicializácia...", # Sem budeme dávať tie texty pre JS
+    "posledna_odozva": 0,
+    "posledna_web_odozva": 0
+}
+web_control = False
+
+app = Flask(__name__)
+CORS(app)
+
+def signalizacia_led():
+    s = latest_data["stav"]
+    if s == 99:
+        GPIO.output(LED_RED, 1); GPIO.output(LED_GREEN, 0); GPIO.output(LED_BLUE, 0)
+    elif s in [1, 3]:
+        GPIO.output(LED_RED, 0); GPIO.output(LED_GREEN, 1); GPIO.output(LED_BLUE, 0)
+    else:
+        GPIO.output(LED_RED, 0); GPIO.output(LED_GREEN, 0); GPIO.output(LED_BLUE, 1)
+
+def beziaca_logika():
+    global web_control
+    while True:
+        teraz = time.time()
+        
+        # Timeout pre webové riadenie
+        if web_control and (teraz - latest_data["posledna_web_odozva"] > LIMIT_WEB_TIMEOUT):
+            print("[DIAG] Web timeout - návrat k automatike")
+            web_control = False
+            latest_data["vypis"] = "Riadenie z webu: OFF"
+
+        # Kontrola spojenia s meteostanicou
+        if latest_data["posledna_odozva"] != 0 and (teraz - latest_data["posledna_odozva"] > LIMIT_ODPOJENIA):
+            if latest_data["stav"] != 99:
+                GPIO.output(RELAY_PIN, 1)
+                latest_data["stav"] = 99
+                latest_data["vypis"] = "Chyba komunikácie."
+                print("[DIAG] CHYBA: Meteostanica sa odmlčala!")
+        
+        # Automatické riadenie
+        elif not web_control and latest_data["stav"] != 99:
+            if (latest_data["dazd"] == 1 or latest_data["intenzita_svetla"] < LIGHT_THRESHOLD or 
+                latest_data["teplota"] < TEMPERATURE_THRESHOLD or latest_data["vlhkost"] > HUMIDITY_THRESHOLD):
+                if latest_data["stav"] != 2:
+                    GPIO.output(RELAY_PIN, 1)
+                    latest_data["stav"] = 2
+                    latest_data["vypis"] = "Čerpadlo vypnuté"
+                    print("[DIAG] Automatika: Vypínam čerpadlo")
+            else:
+                if latest_data["stav"] != 1:
+                    GPIO.output(RELAY_PIN, 0)
+                    latest_data["stav"] = 1
+                    latest_data["vypis"] = "Čerpadlo zapnuté"
+                    print("[DIAG] Automatika: Zapínam čerpadlo")
+        
+        signalizacia_led()
+        time.sleep(1)
+
+# --- ENDPOINTY ---
+
+@app.route('/status', methods=['GET'])
+def get_status():
+    return jsonify(latest_data), 200
+
+@app.route('/data', methods=['POST'])
+def prijmi_data():
+    data = request.get_json()
+    if data:
+        latest_data.update({
+            "dazd": int(data.get("dazd", 1)),
+            "intenzita_svetla": float(data.get("intenzita_svetla", 0)),
+            "teplota": float(data.get("teplota", 0)),
+            "vlhkost": float(data.get("vlhkost", 100)),
+            "posledna_odozva": time.time()
+        })
+        print(f"[METEO] Prijaté dáta: T:{latest_data['teplota']} H:{latest_data['vlhkost']} L:{latest_data['intenzita_svetla']} D:{latest_data['dazd']}")
+        
+        if latest_data["stav"] == 99:
+            latest_data["stav"] = 0
+            print("[DIAG] Spojenie s meteostanicou obnovené")
+            
+        return jsonify({"status": "ok"}), 200
+    return jsonify({"error": "data_error"}), 400
+
+@app.route("/manual", methods=["POST"])
+def manual():
+    global web_control
+    data = request.get_json()
+    akcia = data.get("manual", "").lower()
+    latest_data["posledna_web_odozva"] = time.time()
+    print(f"[WEB] Prijatý príkaz: {akcia}")
+
+    if akcia == "won":
+        web_control = True
+        latest_data["vypis"] = "Riadenie z webu: ON"
+    elif akcia == "woff":
+        web_control = False
+        latest_data["vypis"] = "Riadenie z webu: OFF"
+    elif akcia == "on" and web_control:
+        GPIO.output(RELAY_PIN, 0)
+        latest_data["stav"] = 3
+        latest_data["vypis"] = "Čerpadlo zapnuté"
+    elif akcia == "off" and web_control:
+        GPIO.output(RELAY_PIN, 1)
+        latest_data["stav"] = 4
+        latest_data["vypis"] = "Čerpadlo vypnuté"
+    
+    return jsonify({"status": "ok", "message": latest_data["vypis"]}), 200
+
+if __name__ == "__main__":
+    threading.Thread(target=beziaca_logika, daemon=True).start()
+    app.run(host="0.0.0.0", port=5000)
